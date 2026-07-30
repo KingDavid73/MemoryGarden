@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#214a3a" />
+    <meta
+      name="description"
+      content="An offline-first place to plant thoughts and tend old ones."
+    />
+    <title>Memory Garden</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css?v=18" />
+  </head>
+  <body>
+    <div class="page-texture" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Memory Garden home">
+        <img
+          class="brand-mark"
+          src="/assets/sprites/memory-garden-logo-v2.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <span>
+          <small>Memory</small>
+          <strong>Garden</strong>
+        </span>
+      </a>
+
+      <nav class="top-actions" aria-label="Garden actions">
+        <button class="text-button" id="rings-button" type="button">
+          <span class="ring-icon" aria-hidden="true"></span>
+          Tree rings
+        </button>
+        <button class="primary-button compact" id="archive-button" type="button">
+          Archive garden
+        </button>
+      </nav>
+    </header>
+
+    <main class="app-shell">
+      <section class="garden-heading">
+        <div>
+          <p class="eyebrow">Late spring · <span id="garden-year"></span></p>
+          <h1 class="visually-hidden" id="garden-name">Your memory garden</h1>
+          <p class="garden-subtitle">
+            Plant a new thought, or tend one that’s still growing.
+          </p>
+        </div>
+        <button
+          class="garden-count"
+          id="thread-list-button"
+          type="button"
+          aria-haspopup="dialog"
+          aria-label="Open growing thoughts list"
+        >
+          <strong id="thread-count">0</strong>
+          <span>thoughts growing</span>
+        </button>
+      </section>
+
+      <section class="garden-stage" aria-label="Your memory garden">
+        <div class="sun-glow" aria-hidden="true"></div>
+        <div class="distant-leaves leaves-left" aria-hidden="true"></div>
+        <div class="distant-leaves leaves-right" aria-hidden="true"></div>
+
+        <div class="helper" id="helper">
+          <div class="speech-card" id="speech-card">
+            <span class="speech-kicker">A thought from Sprig</span>
+            <p id="bird-message"></p>
+            <button id="use-prompt-button" type="button">Write about this</button>
+          </div>
+          <button
+            class="bird bird-inquisitive"
+            id="bird-button"
+            type="button"
+            aria-label="Ask Sprig for another suggestion"
+            title="Ask for another suggestion"
+          ></button>
+        </div>
+
+        <div class="garden-board">
+          <div class="garden-base" aria-hidden="true"></div>
+          <button
+            class="central-tree"
+            id="tree-rings-tree"
+            type="button"
+            aria-label="Open tree rings"
+            title="Explore your tree rings"
+          ></button>
+          <div id="plots" class="plots"></div>
+          <div class="wildflowers wildflowers-a" aria-hidden="true"></div>
+          <div class="wildflowers wildflowers-b" aria-hidden="true"></div>
+        </div>
+
+        <p class="garden-hint">
+          <span aria-hidden="true">✦</span>
+          Choose an empty plot to plant a new thought.
+        </p>
+      </section>
+    </main>
+
+    <dialog class="thread-dialog" id="thread-dialog">
+      <form method="dialog">
+        <button class="close-button" value="close" aria-label="Close thread">
+          ×
+        </button>
+      </form>
+      <div class="thread-paper">
+        <header class="thread-header">
+          <p class="eyebrow" id="thread-date">New thought</p>
+          <textarea
+            id="thread-title"
+            class="thread-title"
+            maxlength="80"
+            rows="2"
+            aria-label="Thread title"
+          >A new thought</textarea>
+          <div class="thread-plant-portrait" id="thread-plant-portrait">
+            <span
+              class="thread-plant-art"
+              id="thread-plant-art"
+              aria-hidden="true"
+            ></span>
+            <div>
+              <span>Current growth</span>
+              <strong id="thread-growth-label">A new seed</strong>
+            </div>
+          </div>
+          <button class="options-button" id="tags-toggle" type="button">
+            Themes & tags
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <div class="tag-editor" id="tag-editor" hidden>
+            <p>
+              Sprig notices themes after you write. You can always change them.
+            </p>
+            <div id="tag-list" class="tag-list"></div>
+            <div class="tag-add">
+              <input id="tag-input" maxlength="30" placeholder="Add a tag" />
+              <button id="add-tag-button" type="button">Add</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="entry-stream" id="entry-stream"></div>
+
+        <form class="entry-composer" id="entry-form">
+          <label for="entry-input">What’s on your mind?</label>
+          <textarea
+            id="entry-input"
+            rows="5"
+            placeholder="Let the thought arrive as it is…"
+            required
+          ></textarea>
+          <div class="composer-footer">
+            <span id="save-status">Saved locally</span>
+            <button class="primary-button" type="submit">Tend this thought</button>
+          </div>
+        </form>
+
+        <div class="thread-actions" id="thread-actions">
+          <button id="harvest-button" type="button">Harvest & archive thread</button>
+          <button class="danger-text" id="remove-thread-button" type="button">
+            Dig up this plant
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="thread-list-dialog" id="thread-list-dialog">
+      <form method="dialog">
+        <button
+          class="close-button"
+          value="close"
+          aria-label="Close growing thoughts"
+        >
+          ×
+        </button>
+      </form>
+      <div class="thread-list-card">
+        <p class="eyebrow">Current garden</p>
+        <h2>Growing thoughts</h2>
+        <p class="thread-list-intro">Choose a plant to continue tending it.</p>
+        <div class="thread-list" id="thread-list"></div>
+      </div>
+    </dialog>
+
+    <dialog class="rings-dialog" id="rings-dialog">
+      <form method="dialog">
+        <button class="close-button" value="close" aria-label="Close tree rings">
+          ×
+        </button>
+      </form>
+      <div class="rings-layout">
+        <div class="ring-visual" aria-hidden="true">
+          <div class="ring-art"></div>
+        </div>
+        <div class="rings-content">
+          <p class="eyebrow">Your seasons of thought</p>
+          <h2>Tree rings</h2>
+          <p class="rings-intro">
+            Each archived garden becomes a ring: a quiet record of what mattered
+            during that season.
+          </p>
+          <div id="rings-list" class="rings-list"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="confirm-dialog" id="archive-dialog">
+      <div class="confirm-card">
+        <p class="eyebrow">Begin a fresh season</p>
+        <h2>Archive this garden?</h2>
+        <p>
+          Its threads and themes will become a new tree ring. Nothing is deleted,
+          and you can revisit it whenever you like.
+        </p>
+        <label for="next-garden-name">Name the new garden</label>
+        <input id="next-garden-name" value="A fresh garden" maxlength="60" />
+        <div class="confirm-actions">
+          <button id="cancel-archive-button" type="button">Not yet</button>
+          <button
+            class="primary-button"
+            id="confirm-archive-button"
+            type="button"
+          >
+            Archive & begin anew
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js?v=18"></script>
+  </body>
+</html>

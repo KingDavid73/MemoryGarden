@@ -1,0 +1,55 @@
+workflows:
+  ios-simulator:
+    name: iOS simulator preview
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 24
+      xcode: latest
+    scripts:
+      - name: Install JavaScript dependencies
+        script: npm ci
+      - name: Sync the web app into the iOS wrapper
+        script: npx cap sync ios
+      - name: Build the unsigned simulator app
+        script: |
+          xcodebuild build \
+            -project "$CM_BUILD_DIR/ios/App/App.xcodeproj" \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -configuration Debug \
+            -derivedDataPath "$CM_BUILD_DIR/build/ios-simulator" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+    artifacts:
+      - build/ios-simulator/Build/Products/Debug-iphonesimulator/App.app
+      - /tmp/xcodebuild_logs/*.log
+
+  ios-device:
+    name: iOS device build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 24
+      xcode: latest
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.memorygarden.app
+    scripts:
+      - name: Install JavaScript dependencies
+        script: npm ci
+      - name: Sync the web app into the iOS wrapper
+        script: npx cap sync ios
+      - name: Apply the uploaded Apple signing profile
+        script: xcode-project use-profiles
+      - name: Build the signed IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/ios/App/App.xcodeproj" \
+            --scheme App
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
