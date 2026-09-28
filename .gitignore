@@ -1,4 +1,5 @@
 .env
 node_modules/
 builds/
+*.log
 .DS_Store
