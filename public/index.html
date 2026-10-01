@@ -10,7 +10,7 @@
     />
     <title>Memory Garden</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css?v=18" />
+    <link rel="stylesheet" href="/styles.css?v=21" />
   </head>
   <body>
     <div class="page-texture" aria-hidden="true"></div>
@@ -185,6 +185,12 @@
         <h2>Growing thoughts</h2>
         <p class="thread-list-intro">Choose a plant to continue tending it.</p>
         <div class="thread-list" id="thread-list"></div>
+        <p>Your journal is saved on this device, in this browser. Clearing site data removes it. Keep a backup to move it elsewhere.</p>
+        <div class="confirm-actions">
+          <button id="export-journal" type="button">Save JSON backup</button>
+          <button id="import-journal" type="button">Load JSON backup</button>
+          <input id="journal-file" type="file" accept=".json,application/json" hidden />
+        </div>
       </div>
     </dialog>
 
@@ -234,6 +240,7 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=18"></script>
+    <script src="/suggestions.js?v=21"></script>
+    <script src="/app.js?v=21"></script>
   </body>
 </html>

@@ -1,9 +1,10 @@
-const CACHE_NAME = "memory-garden-v18";
+const CACHE_NAME = "memory-garden-v21";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=18",
-  "/app.js?v=18",
+  "/styles.css?v=21",
+  "/suggestions.js?v=21",
+  "/app.js?v=21",
   "/manifest.webmanifest",
   "/assets/sprites/tree-sheet.png",
   "/assets/sprites/bird-sheet.png",
@@ -40,6 +41,7 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (new URL(event.request.url).pathname.startsWith("/api/")) return;
   if (event.request.method !== "GET") return;
   event.respondWith(
     fetch(event.request)

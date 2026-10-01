@@ -63,6 +63,53 @@ let suggestionText = "";
 let typeTimer = null;
 let toastTimer = null;
 let stateNormalizationChanged = false;
+let currentSuggestion;
+let suggestionIndex = 0;
+let suggestionRequest = 0;
+let modelRetryAt = 0;
+let availabilityCheck = null;
+let pendingListPrompt = "";
+
+async function modelAvailable() {
+  if (!navigator.onLine || Date.now() < modelRetryAt) return false;
+  if (!availabilityCheck) {
+    availabilityCheck = (async () => {
+      try {
+        const response = await fetch("/api/availability", { cache: "no-store", signal: AbortSignal.timeout(2000) });
+        const data = response.ok ? await response.json() : null;
+        if (data?.available !== true) throw new Error("Model not configured");
+        return true;
+      } catch {
+        modelRetryAt = Date.now() + 5 * 60 * 1000;
+        return false;
+      } finally {
+        availabilityCheck = null;
+      }
+    })();
+  }
+  return availabilityCheck;
+}
+
+async function modelRequest(url, body) {
+  if (!await modelAvailable()) throw new Error("Model unavailable");
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Model unavailable");
+    return await response.json();
+  } catch (error) {
+    modelRetryAt = Date.now() + 5 * 60 * 1000;
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 
 function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
@@ -211,6 +258,7 @@ function saveState() {
     transaction.objectStore(STORE_NAME).put(state, STATE_KEY);
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Local save aborted"));
   });
 }
 
@@ -341,13 +389,15 @@ function renderThreadList() {
     button.append(plantWrap, copy);
     button.addEventListener("click", () => {
       elements.threadListDialog.close();
-      openThread(thread.id);
+      const prompt = pendingListPrompt;
+      pendingListPrompt = "";
+      openThread(thread.id, prompt);
     });
     elements.threadList.append(button);
   }
 }
 
-function plantThread(plotIndex, initialPrompt = "") {
+async function plantThread(plotIndex, initialPrompt = "") {
   const now = new Date().toISOString();
   const thread = {
     id: uid("thread"),
@@ -362,7 +412,13 @@ function plantThread(plotIndex, initialPrompt = "") {
     entries: [],
   };
   state.threads.push(thread);
-  saveState();
+  try {
+    await saveState();
+  } catch {
+    state.threads = state.threads.filter((item) => item.id !== thread.id);
+    showToast("Could not save this plant. Check that browser storage is allowed.");
+    return;
+  }
   renderGarden();
   openThread(thread.id, initialPrompt);
 }
@@ -395,8 +451,10 @@ function openThread(id, initialPrompt = "") {
     ? `Sprig suggests: ${initialPrompt}`
     : "Let the thought arrive as it is…";
   elements.tagEditor.hidden = true;
-  elements.threadActions.hidden = thread.status !== "active";
-  elements.entryForm.hidden = thread.status !== "active";
+  const editable = thread.status === "active" && thread.gardenId === state.activeGardenId;
+  elements.threadActions.hidden = !editable;
+  elements.entryForm.hidden = !editable;
+  elements.threadTitle.readOnly = !editable;
   renderEntries(thread);
   renderTags(thread);
   elements.threadDialog.showModal();
@@ -475,26 +533,27 @@ async function submitEntry(event) {
     elements.threadTitle.value = thread.title;
   }
 
+  try {
+    await saveState();
+  } catch {
+    thread.entries.pop();
+    elements.saveStatus.textContent = "Not saved — please try again. Your text is still here.";
+    return;
+  }
   elements.entryInput.value = "";
   elements.saveStatus.textContent = "Saved locally · noticing themes…";
-  await saveState();
   renderEntries(thread);
   renderGarden();
+  requestSuggestion();
   analyzeEntry(thread, body);
 }
 
 async function analyzeEntry(thread, body) {
   try {
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const data = await modelRequest("/api/analyze", {
         text: body,
         existingTags: thread.tags.map((tag) => tag.name),
-      }),
     });
-    if (!response.ok) throw new Error("Theme analysis unavailable");
-    const data = await response.json();
     const existing = new Set(thread.tags.map((tag) => tag.name.toLowerCase()));
     for (const name of data.tags || []) {
       const clean = String(name).trim().slice(0, 30);
@@ -542,6 +601,7 @@ async function harvestThread() {
   elements.threadDialog.close();
   renderGarden();
   showToast("Thread harvested. It remains part of this garden.");
+  requestSuggestion();
 }
 
 async function removeThread() {
@@ -557,6 +617,7 @@ async function removeThread() {
   elements.threadDialog.close();
   renderGarden();
   showToast("The plot is open again.");
+  requestSuggestion();
 }
 
 function collectGardenThemes(gardenId) {
@@ -655,46 +716,43 @@ async function archiveGarden() {
   showToast("A new garden has begun. The last one is now a tree ring.");
 }
 
-function contextualFallback() {
-  const threads = activeThreads();
-  if (threads.length) {
-    const oldest = [...threads].sort(
-      (a, b) => new Date(a.updatedAt) - new Date(b.updatedAt),
-    )[0];
-    return `Would you like to return to “${oldest.title}” and notice what has changed?`;
+async function requestSuggestion(immediate = false) {
+  const requestId = ++suggestionRequest;
+  const choices = gardenSuggestions(state);
+  const previousText = suggestionText;
+  let next;
+  for (let attempt = 0; attempt < choices.length; attempt += 1) {
+    next = choices[suggestionIndex++ % choices.length];
+    if (next.text !== previousText) break;
   }
-  return genericPrompts[Math.floor(Math.random() * genericPrompts.length)];
-}
+  currentSuggestion = next;
+  elements.usePromptButton.textContent = currentSuggestion.label;
+  typeSuggestion(currentSuggestion.text, immediate);
+  // Lifecycle suggestions are local actions, so the model must not change their meaning.
+  if (currentSuggestion.kind !== "plant") return;
 
-async function requestSuggestion() {
-  elements.speechCard.classList.remove("done");
-  elements.birdMessage.textContent = "";
-  typeSuggestion("Let me look around the garden…");
-
-  const threads = activeThreads();
-  const context = threads.slice(0, 8).map((thread) => ({
-    title: thread.title,
-    tags: thread.tags.map((tag) => tag.name),
-    lastUpdated: thread.updatedAt,
-  }));
+  const context = journalContext(state);
 
   try {
-    const response = await fetch("/api/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threads: context }),
-    });
-    if (!response.ok) throw new Error("Suggestion unavailable");
-    const data = await response.json();
-    typeSuggestion(data.suggestion || contextualFallback());
+    const data = await modelRequest("/api/suggest", { ...context, prompt: currentSuggestion.text });
+    if (requestId !== suggestionRequest) return;
+    if (typeof data.suggestion === "string" && data.suggestion.trim() && data.suggestion.trim().slice(0, 500) !== previousText) {
+      currentSuggestion.text = data.suggestion.trim().slice(0, 500);
+      typeSuggestion(currentSuggestion.text, immediate);
+    }
   } catch {
-    typeSuggestion(contextualFallback());
+    // The actionable local suggestion is already visible.
   }
 }
 
-function typeSuggestion(text) {
+function typeSuggestion(text, immediate = false) {
   suggestionText = text;
   window.clearInterval(typeTimer);
+  if (immediate) {
+    elements.birdMessage.textContent = text;
+    elements.speechCard.classList.add("done");
+    return;
+  }
   elements.speechCard.classList.remove("done");
   elements.birdMessage.textContent = "";
   let index = 0;
@@ -709,9 +767,25 @@ function typeSuggestion(text) {
 }
 
 function useSuggestion() {
+  if (!currentSuggestion) return;
+  ++suggestionRequest;
+  if (currentSuggestion.kind === "season") {
+    elements.archiveDialog.showModal();
+    return;
+  }
+  if (currentSuggestion.threadId) {
+    const thread = threadById(currentSuggestion.threadId);
+    if (thread?.status === "active" && thread.gardenId === state.activeGardenId) {
+      openThread(thread.id, currentSuggestion.text);
+    } else requestSuggestion();
+    return;
+  }
   const plotIndex = nextEmptyPlot();
   if (plotIndex === null) {
-    showToast("Every plot is growing. Harvest a thread to open some space.");
+    renderThreadList();
+    pendingListPrompt = suggestionText;
+    elements.threadListDialog.showModal();
+    showToast("Choose a thought to write in, or harvest a plant for a new topic.");
     return;
   }
   plantThread(plotIndex, suggestionText);
@@ -732,7 +806,60 @@ function openTreeRings() {
   elements.ringsDialog.showModal();
 }
 
+function exportJournal() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `memory-garden-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function validateBackup(value) {
+  const validDate = (date) => typeof date === "string" && Number.isFinite(Date.parse(date));
+  const uniqueIds = (items) => items.every((item) => typeof item.id === "string" && item.id.length > 0) && new Set(items.map((item) => item.id)).size === items.length;
+  if (!value || value.version !== 1 || !Array.isArray(value.gardens) || !value.gardens.length || !Array.isArray(value.threads) || !uniqueIds(value.gardens) || !uniqueIds(value.threads)) throw new Error("Invalid backup");
+  if (!value.gardens.every((garden) => typeof garden.name === "string" && validDate(garden.createdAt) && (garden.archivedAt === null || validDate(garden.archivedAt)))) throw new Error("Invalid gardens");
+  if (!value.gardens.some((garden) => garden.id === value.activeGardenId && !garden.archivedAt)) throw new Error("Missing current garden");
+  for (const thread of value.threads) {
+    if (!value.gardens.some((garden) => garden.id === thread.gardenId) || typeof thread.title !== "string" || !validDate(thread.createdAt) || !validDate(thread.updatedAt) || !["active", "harvested", "removed"].includes(thread.status) || !Number.isInteger(thread.plantFamily) || thread.plantFamily < 0 || thread.plantFamily > 2 || !Array.isArray(thread.tags) || !thread.tags.every((tag) => typeof tag.name === "string") || !Array.isArray(thread.entries) || !uniqueIds(thread.entries) || !thread.entries.every((entry) => typeof entry.body === "string" && validDate(entry.createdAt))) throw new Error("Invalid thread");
+  }
+  for (const garden of value.gardens) {
+    if (value.threads.filter((thread) => thread.gardenId === garden.id && thread.status === "active").length > MAX_PLOTS) throw new Error("Too many active plots");
+  }
+  value.plotLayoutVersion = 0;
+  return normalizeState(value);
+}
+
+async function importJournal(event) {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const previous = state;
+  try {
+    if (file.size > 20 * 1024 * 1024) throw new Error("Backup too large");
+    const imported = validateBackup(JSON.parse(await file.text()));
+    if (!window.confirm("Load this backup? It will replace the journal in this browser. Save a JSON backup first if you want to keep the current journal.")) return;
+    state = imported;
+    await saveState();
+    ++suggestionRequest;
+    openThreadId = null;
+    elements.threadListDialog.close();
+    renderGarden();
+    requestSuggestion();
+    showToast("Your journal backup is now saved on this device.");
+  } catch (error) {
+    state = previous;
+    showToast("Could not load this backup. Use a Memory Garden JSON backup (up to 20 MB).");
+    console.error(error);
+  }
+}
+
 function bindEvents() {
+  document.querySelector("#export-journal").addEventListener("click", exportJournal);
+  document.querySelector("#import-journal").addEventListener("click", () => document.querySelector("#journal-file").click());
+  document.querySelector("#journal-file").addEventListener("change", importJournal);
   elements.entryForm.addEventListener("submit", submitEntry);
   elements.threadTitle.addEventListener("change", updateThreadTitle);
   elements.threadTitle.addEventListener("input", resizeThreadTitle);
@@ -757,9 +884,10 @@ function bindEvents() {
     elements.archiveDialog.close(),
   );
   elements.confirmArchiveButton.addEventListener("click", archiveGarden);
-  elements.birdButton.addEventListener("click", requestSuggestion);
+  elements.birdButton.addEventListener("click", () => requestSuggestion(true));
   elements.usePromptButton.addEventListener("click", useSuggestion);
   elements.threadListButton.addEventListener("click", () => {
+    pendingListPrompt = "";
     renderThreadList();
     elements.threadListDialog.showModal();
   });
@@ -777,6 +905,7 @@ async function initialize() {
     bindEvents();
     renderGarden();
     requestSuggestion();
+    navigator.storage?.persist?.().catch(() => {});
 
     if (
       !window.Capacitor?.isNativePlatform?.() &&
